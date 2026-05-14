@@ -58,6 +58,7 @@ async function processMessage(event: any): Promise<void> {
   if (event.message) {
     console.log("[Webhook] New DM:", {
       from: event.sender.id,
+      to: event.recipient.id,
       text: event.message.text ?? "(non-text message)",
       timestamp: new Date(
         typeof event.timestamp === "string"
@@ -66,17 +67,9 @@ async function processMessage(event: any): Promise<void> {
       ).toISOString(),
     });
 
-    // Get the conversation ID and send a "Hello world" reply
-    const conversationId = await getConversationId(
-      event.sender.id,
-      event.recipient.id
-    );
-
-    if (conversationId) {
-      await sendInstagramMessage(conversationId, "Hello world");
-    } else {
-      console.error("[Webhook] Could not find conversation ID");
-    }
+    // Try using recipient.id as conversation ID (it might already be the conversation ID)
+    console.log("[Webhook] Attempting to reply to conversation:", event.recipient.id);
+    await sendInstagramMessage(event.recipient.id, "Hello world");
   }
 
   if (event.read) {
