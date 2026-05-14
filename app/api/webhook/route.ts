@@ -31,32 +31,39 @@ export async function POST(req: NextRequest) {
   const entries: MetaEntry[] = body.entry ?? [];
 
   for (const entry of entries) {
-    const messagingEvents: MetaMessagingEvent[] = entry.messaging ?? [];
+    const changes: MetaChange[] = entry.changes ?? [];
 
-    for (const event of messagingEvents) {
-      if (event.message) {
+    for (const change of changes) {
+      // Only process message field changes
+      if (change.field !== "messages") {
+        continue;
+      }
+
+      const value = change.value;
+
+      if (value.message) {
         console.log("[Webhook] New DM:", {
-          from: event.sender.id,
-          text: event.message.text ?? "(non-text message)",
-          timestamp: new Date(event.timestamp).toISOString(),
+          from: value.sender.id,
+          text: value.message.text ?? "(non-text message)",
+          timestamp: new Date(parseInt(value.timestamp) * 1000).toISOString(),
         });
 
         // Send a "Hello world" reply to this message
         await sendInstagramMessage(
-          event.recipient.id, // conversation ID
+          value.sender.id, // sender ID for the reply
           "Hello world"
         );
       }
 
-      if (event.read) {
-        console.log("[Webhook] Message read by:", event.sender.id);
+      if (value.read) {
+        console.log("[Webhook] Message read by:", value.sender.id);
       }
 
-      if (event.reaction) {
+      if (value.reaction) {
         console.log("[Webhook] Reaction:", {
-          from: event.sender.id,
-          emoji: event.reaction.emoji,
-          action: event.reaction.action,
+          from: value.sender.id,
+          emoji: value.reaction.emoji,
+          action: value.reaction.action,
         });
       }
     }
@@ -111,23 +118,26 @@ async function sendInstagramMessage(
 interface MetaEntry {
   id: string;
   time: number;
-  messaging?: MetaMessagingEvent[];
+  changes?: MetaChange[];
 }
 
-interface MetaMessagingEvent {
-  sender: { id: string };
-  recipient: { id: string };
-  timestamp: number;
-  message?: {
-    mid: string;
-    text?: string;
-  };
-  read?: {
-    watermark: number;
-  };
-  reaction?: {
-    mid: string;
-    action: "react" | "unreact";
-    emoji?: string;
+interface MetaChange {
+  field: string;
+  value: {
+    sender: { id: string };
+    recipient?: { id: string };
+    timestamp: string;
+    message?: {
+      mid: string;
+      text?: string;
+    };
+    read?: {
+      watermark: number;
+    };
+    reaction?: {
+      mid: string;
+      action: "react" | "unreact";
+      emoji?: string;
+    };
   };
 }
