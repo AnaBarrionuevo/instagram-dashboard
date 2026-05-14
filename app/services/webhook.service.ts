@@ -106,7 +106,7 @@ async function processMessage(event: any): Promise<void> {
   });
 
   // Generate AI response using OpenAI
-  const aiResponse = await generateAIResponse(messageText);
+  const aiResponse = await generateAIResponse(messageText, event.sender.id);
 
   if (aiResponse) {
     console.log("[Webhook] Sending AI response to:", event.sender.id);
