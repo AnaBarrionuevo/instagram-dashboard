@@ -56,9 +56,11 @@ export async function POST(req: NextRequest) {
 // Process a message event (handles both webhook formats)
 async function processMessage(event: any): Promise<void> {
   if (event.message) {
+    const messageText = event.message.text ?? "(non-text message)";
+
     console.log("[Webhook] New DM:", {
       from: event.sender.id,
-      text: event.message.text ?? "(non-text message)",
+      text: messageText,
       timestamp: new Date(
         typeof event.timestamp === "string"
           ? parseInt(event.timestamp) * 1000
@@ -66,9 +68,19 @@ async function processMessage(event: any): Promise<void> {
       ).toISOString(),
     });
 
-    // Send "Hello world" reply to the sender
-    console.log("[Webhook] Sending reply to:", event.sender.id);
-    await sendInstagramMessage(event.sender.id, "Hello world");
+    // Generate AI response using OpenAI
+    const aiResponse = await generateAIResponse(messageText);
+
+    if (aiResponse) {
+      console.log("[Webhook] Sending AI response to:", event.sender.id);
+      await sendInstagramMessage(event.sender.id, aiResponse);
+    } else {
+      console.error("[Webhook] Failed to generate AI response");
+      await sendInstagramMessage(
+        event.sender.id,
+        "Sorry, I couldn't process your message at the moment."
+      );
+    }
   }
 
   if (event.read) {
@@ -126,6 +138,56 @@ async function getConversationId(
     return null;
   } catch (error) {
     console.error("[GetConversation] Error:", error);
+    return null;
+  }
+}
+
+// Generate AI response using OpenAI API
+async function generateAIResponse(userMessage: string): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    console.error("[OpenAI] Missing OPENAI_API_KEY");
+    return null;
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a helpful Instagram DM assistant. Keep responses concise (under 280 characters) and friendly. Respond directly to the user's message.",
+          },
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
+        max_tokens: 100,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("[OpenAI] API error:", data);
+      return null;
+    }
+
+    const aiMessage =
+      data.choices?.[0]?.message?.content ?? "Sorry, I couldn't generate a response.";
+    console.log("[OpenAI] Generated response:", aiMessage);
+    return aiMessage;
+  } catch (error) {
+    console.error("[OpenAI] Error:", error);
     return null;
   }
 }
