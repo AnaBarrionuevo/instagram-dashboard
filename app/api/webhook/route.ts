@@ -66,8 +66,17 @@ async function processMessage(event: any): Promise<void> {
       ).toISOString(),
     });
 
-    // Send a "Hello world" reply to this message
-    await sendInstagramMessage(event.sender.id, "Hello world");
+    // Get the conversation ID and send a "Hello world" reply
+    const conversationId = await getConversationId(
+      event.sender.id,
+      event.recipient.id
+    );
+
+    if (conversationId) {
+      await sendInstagramMessage(conversationId, "Hello world");
+    } else {
+      console.error("[Webhook] Could not find conversation ID");
+    }
   }
 
   if (event.read) {
@@ -80,6 +89,52 @@ async function processMessage(event: any): Promise<void> {
       emoji: event.reaction.emoji,
       action: event.reaction.action,
     });
+  }
+}
+
+// Get the conversation ID for a sender-recipient pair
+async function getConversationId(
+  senderId: string,
+  recipientId: string
+): Promise<string | null> {
+  const accessToken = process.env.INSTAGRAM_TOKEN;
+  const businessAccountId = process.env.INSTAGRAM_USER_ID;
+
+  if (!accessToken || !businessAccountId) {
+    console.error("[GetConversation] Missing credentials");
+    return null;
+  }
+
+  try {
+    const url = `https://graph.instagram.com/v18.0/${businessAccountId}/conversations?fields=id,senders&access_token=${accessToken}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("[GetConversation] Failed to fetch conversations:", data);
+      return null;
+    }
+
+    // Find the conversation with this sender
+    const conversations = data.data ?? [];
+    const conversation = conversations.find((conv: any) =>
+      conv.senders?.some((sender: any) => sender.id === senderId)
+    );
+
+    if (conversation) {
+      console.log("[GetConversation] Found conversation:", conversation.id);
+      return conversation.id;
+    }
+
+    console.warn(
+      "[GetConversation] No conversation found for sender:",
+      senderId
+    );
+    return null;
+  } catch (error) {
+    console.error("[GetConversation] Error:", error);
+    return null;
   }
 }
 
