@@ -31,46 +31,56 @@ export async function POST(req: NextRequest) {
   const entries: MetaEntry[] = body.entry ?? [];
 
   for (const entry of entries) {
+    // Handle format 1: changes array (test webhooks)
     const changes: MetaChange[] = entry.changes ?? [];
-
     for (const change of changes) {
-      // Only process message field changes
       if (change.field !== "messages") {
         continue;
       }
 
       const value = change.value;
+      await processMessage(value);
+    }
 
-      if (value.message) {
-        console.log("[Webhook] New DM:", {
-          from: value.sender.id,
-          text: value.message.text ?? "(non-text message)",
-          timestamp: new Date(parseInt(value.timestamp) * 1000).toISOString(),
-        });
-
-        // Send a "Hello world" reply to this message
-        await sendInstagramMessage(
-          value.sender.id, // sender ID for the reply
-          "Hello world"
-        );
-      }
-
-      if (value.read) {
-        console.log("[Webhook] Message read by:", value.sender.id);
-      }
-
-      if (value.reaction) {
-        console.log("[Webhook] Reaction:", {
-          from: value.sender.id,
-          emoji: value.reaction.emoji,
-          action: value.reaction.action,
-        });
-      }
+    // Handle format 2: messaging array (real messages)
+    const messagingEvents: MetaMessagingEvent[] = entry.messaging ?? [];
+    for (const event of messagingEvents) {
+      await processMessage(event);
     }
   }
 
   // Always return 200 quickly — Meta will retry if you don't
   return NextResponse.json({ status: "ok" }, { status: 200 });
+}
+
+// Process a message event (handles both webhook formats)
+async function processMessage(event: any): Promise<void> {
+  if (event.message) {
+    console.log("[Webhook] New DM:", {
+      from: event.sender.id,
+      text: event.message.text ?? "(non-text message)",
+      timestamp: new Date(
+        typeof event.timestamp === "string"
+          ? parseInt(event.timestamp) * 1000
+          : event.timestamp
+      ).toISOString(),
+    });
+
+    // Send a "Hello world" reply to this message
+    await sendInstagramMessage(event.sender.id, "Hello world");
+  }
+
+  if (event.read) {
+    console.log("[Webhook] Message read by:", event.sender.id);
+  }
+
+  if (event.reaction) {
+    console.log("[Webhook] Reaction:", {
+      from: event.sender.id,
+      emoji: event.reaction.emoji,
+      action: event.reaction.action,
+    });
+  }
 }
 
 // Function to send a DM via Instagram Graph API
@@ -119,6 +129,7 @@ interface MetaEntry {
   id: string;
   time: number;
   changes?: MetaChange[];
+  messaging?: MetaMessagingEvent[];
 }
 
 interface MetaChange {
@@ -139,5 +150,23 @@ interface MetaChange {
       action: "react" | "unreact";
       emoji?: string;
     };
+  };
+}
+
+interface MetaMessagingEvent {
+  sender: { id: string };
+  recipient: { id: string };
+  timestamp: number;
+  message?: {
+    mid: string;
+    text?: string;
+  };
+  read?: {
+    watermark: number;
+  };
+  reaction?: {
+    mid: string;
+    action: "react" | "unreact";
+    emoji?: string;
   };
 }
