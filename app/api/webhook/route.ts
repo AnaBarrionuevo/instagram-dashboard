@@ -55,44 +55,47 @@ export async function POST(req: NextRequest) {
 
 // Process a message event (handles both webhook formats)
 async function processMessage(event: any): Promise<void> {
-  if (event.message) {
-    const messageText = event.message.text ?? "(non-text message)";
-
-    console.log("[Webhook] New DM:", {
-      from: event.sender.id,
-      text: messageText,
-      timestamp: new Date(
-        typeof event.timestamp === "string"
-          ? parseInt(event.timestamp) * 1000
-          : event.timestamp
-      ).toISOString(),
-    });
-
-    // Generate AI response using OpenAI
-    const aiResponse = await generateAIResponse(messageText);
-
-    if (aiResponse) {
-      console.log("[Webhook] Sending AI response to:", event.sender.id);
-      await sendInstagramMessage(event.sender.id, aiResponse);
-    } else {
-      console.error("[Webhook] Failed to generate AI response");
-      await sendInstagramMessage(
-        event.sender.id,
-        "Sorry, I couldn't process your message at the moment."
-      );
+  // Only process incoming messages, ignore read receipts and reactions
+  if (!event.message) {
+    if (event.read) {
+      console.log("[Webhook] Message read by:", event.sender.id);
     }
+
+    if (event.reaction) {
+      console.log("[Webhook] Reaction:", {
+        from: event.sender.id,
+        emoji: event.reaction.emoji,
+        action: event.reaction.action,
+      });
+    }
+
+    return; // Exit early for non-message events
   }
 
-  if (event.read) {
-    console.log("[Webhook] Message read by:", event.sender.id);
-  }
+  const messageText = event.message.text ?? "(non-text message)";
 
-  if (event.reaction) {
-    console.log("[Webhook] Reaction:", {
-      from: event.sender.id,
-      emoji: event.reaction.emoji,
-      action: event.reaction.action,
-    });
+  console.log("[Webhook] New DM:", {
+    from: event.sender.id,
+    text: messageText,
+    timestamp: new Date(
+      typeof event.timestamp === "string"
+        ? parseInt(event.timestamp) * 1000
+        : event.timestamp
+    ).toISOString(),
+  });
+
+  // Generate AI response using OpenAI
+  const aiResponse = await generateAIResponse(messageText);
+
+  if (aiResponse) {
+    console.log("[Webhook] Sending AI response to:", event.sender.id);
+    await sendInstagramMessage(event.sender.id, aiResponse);
+  } else {
+    console.error("[Webhook] Failed to generate AI response");
+    await sendInstagramMessage(
+      event.sender.id,
+      "Sorry, I couldn't process your message at the moment."
+    );
   }
 }
 
