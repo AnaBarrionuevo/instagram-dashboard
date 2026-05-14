@@ -78,10 +78,10 @@ async function sendInstagramMessage(
   conversationId: string,
   message: string
 ): Promise<void> {
-  const accessToken = process.env.PAGE_ACCESS_TOKEN;
+  const accessToken = process.env.INSTAGRAM_TOKEN;
 
   if (!accessToken) {
-    console.error("[SendMessage] Missing PAGE_ACCESS_TOKEN");
+    console.error("[SendMessage] Missing INSTAGRAM_TOKEN");
     return;
   }
 
