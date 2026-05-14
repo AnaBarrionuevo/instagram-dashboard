@@ -58,7 +58,6 @@ async function processMessage(event: any): Promise<void> {
   if (event.message) {
     console.log("[Webhook] New DM:", {
       from: event.sender.id,
-      to: event.recipient.id,
       text: event.message.text ?? "(non-text message)",
       timestamp: new Date(
         typeof event.timestamp === "string"
@@ -67,9 +66,9 @@ async function processMessage(event: any): Promise<void> {
       ).toISOString(),
     });
 
-    // Try using recipient.id as conversation ID (it might already be the conversation ID)
-    console.log("[Webhook] Attempting to reply to conversation:", event.recipient.id);
-    await sendInstagramMessage(event.recipient.id, "Hello world");
+    // Send "Hello world" reply to the sender
+    console.log("[Webhook] Sending reply to:", event.sender.id);
+    await sendInstagramMessage(event.sender.id, "Hello world");
   }
 
   if (event.read) {
@@ -133,7 +132,7 @@ async function getConversationId(
 
 // Function to send a DM via Instagram Graph API
 async function sendInstagramMessage(
-  conversationId: string,
+  recipientId: string,
   message: string
 ): Promise<void> {
   const accessToken = process.env.INSTAGRAM_TOKEN;
@@ -143,18 +142,18 @@ async function sendInstagramMessage(
     return;
   }
 
-  const url = `https://graph.instagram.com/v18.0/${conversationId}/messages`;
+  const url = `https://graph.instagram.com/v25.0/me/messages`;
 
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        recipient: { id: conversationId },
         message: { text: message },
-        access_token: accessToken,
+        recipient: { id: recipientId },
       }),
     });
 
