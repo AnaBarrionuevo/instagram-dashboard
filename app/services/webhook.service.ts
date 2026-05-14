@@ -87,6 +87,12 @@ async function processMessage(event: any): Promise<void> {
     return; // Exit early for non-message events
   }
 
+  // Ignore echo messages (messages sent by the bot itself)
+  if (event.message.is_echo || event.message.is_self) {
+    console.log("[Webhook] Ignoring echo/self message from:", event.sender.id);
+    return;
+  }
+
   const messageText = event.message.text ?? "(non-text message)";
 
   console.log("[Webhook] New DM:", {
