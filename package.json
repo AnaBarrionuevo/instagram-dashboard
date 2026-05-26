@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "knowledge:setup": "tsx scripts/setup-assistant.ts",
+    "knowledge:sync-instagram": "tsx scripts/sync-instagram.ts",
+    "knowledge:refresh": "tsx scripts/refresh-meta-token.ts; tsx scripts/sync-instagram.ts && tsx scripts/setup-assistant.ts",
+    "meta:refresh-token": "tsx scripts/refresh-meta-token.ts"
   },
   "dependencies": {
     "next": "16.2.4",
@@ -22,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
+    "tsx": "^4.20.3",
     "typescript": "^5"
   }
 }

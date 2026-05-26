@@ -9,6 +9,8 @@ Examples:
 - products.pdf     — product catalog
 - policies.txt     — shipping, returns, etc.
 
-Run the setup script once your files are ready:
+Scripts (from repo root):
 
-  npx tsx scripts/setup-assistant.ts
+  npm run knowledge:sync-instagram   # fetch IG posts → instagram-agenda.txt
+  npm run knowledge:setup            # upload /knowledge to OpenAI vector store
+  npm run knowledge:refresh          # sync Instagram + refresh vector store

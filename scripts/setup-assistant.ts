@@ -1,36 +1,45 @@
 /**
- * One-time setup script: creates (or updates) an OpenAI Assistant with
- * file_search enabled and uploads every file in the /knowledge directory.
+ * Creates or refreshes an OpenAI vector store from files in /knowledge.
  *
- * Usage:
- *   npx tsx scripts/setup-assistant.ts
+ * - First run (no OPENAI_VECTOR_STORE_ID): creates a store and prints the ID.
+ * - Later runs: replaces all files in the existing store (use after sync-instagram).
  *
- * On first run it prints the Assistant ID — copy it into .env.local as
- * OPENAI_ASSISTANT_ID. Re-running the script will replace the vector store
- * files with the latest versions from /knowledge.
+ * Usage: npm run knowledge:setup
  */
 
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { loadEnvLocal } from "./lib/load-env";
+
+loadEnvLocal();
 
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey) {
-  console.error("Missing OPENAI_ASSISTANT_ID env var. Run with: OPENAI_API_KEY=sk-... npx tsx scripts/setup-assistant.ts");
+  console.error("Missing OPENAI_API_KEY in .env.local");
   process.exit(1);
 }
 
 const openai = new OpenAI({ apiKey });
-
 const KNOWLEDGE_DIR = path.join(process.cwd(), "knowledge");
-const ASSISTANT_ID = process.env.OPENAI_ASSISTANT_ID;
+const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID;
+
+function listKnowledgeFiles(): string[] {
+  if (!fs.existsSync(KNOWLEDGE_DIR)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(KNOWLEDGE_DIR)
+    .filter((f) => !f.startsWith(".") && !f.endsWith(".md"));
+}
 
 async function uploadKnowledgeFiles(): Promise<string[]> {
-  const files = fs.readdirSync(KNOWLEDGE_DIR).filter((f) => !f.startsWith("."));
+  const files = listKnowledgeFiles();
 
   if (files.length === 0) {
     console.warn(
-      `[setup] No files found in /knowledge — add .txt, .pdf, or .docx files there first.`
+      "[setup] No files in /knowledge — add documents or run npm run knowledge:sync-instagram"
     );
     return [];
   }
@@ -51,56 +60,58 @@ async function uploadKnowledgeFiles(): Promise<string[]> {
   return fileIds;
 }
 
+async function clearVectorStore(storeId: string): Promise<void> {
+  console.log(`[setup] Clearing existing files from ${storeId}...`);
+
+  const existing = await openai.vectorStores.files.list(storeId);
+
+  for (const file of existing.data) {
+    await openai.vectorStores.files.delete(file.id, {
+      vector_store_id: storeId,
+    });
+    console.log(`  − removed ${file.id}`);
+  }
+}
+
+async function attachFilesToStore(
+  storeId: string,
+  fileIds: string[]
+): Promise<void> {
+  for (const fileId of fileIds) {
+    await openai.vectorStores.files.create(storeId, { file_id: fileId });
+  }
+}
+
 async function main() {
   const fileIds = await uploadKnowledgeFiles();
 
-  if (ASSISTANT_ID) {
-    // --- Update existing assistant ---
-    console.log(`[setup] Updating existing assistant: ${ASSISTANT_ID}`);
-
-    // Create a fresh vector store with the new files
-    const vectorStore = await openai.beta.vectorStores.create({
-      name: "Instagram DM Knowledge Base",
-      ...(fileIds.length > 0 && { file_ids: fileIds }),
-    });
-
-    await openai.beta.assistants.update(ASSISTANT_ID, {
-      tool_resources: {
-        file_search: { vector_store_ids: [vectorStore.id] },
-      },
-    });
-
-    console.log(`[setup] Assistant updated. Vector store: ${vectorStore.id}`);
-  } else {
-    // --- Create new assistant ---
-    console.log("[setup] Creating new assistant...");
-
-    const createParams: OpenAI.Beta.AssistantCreateParams = {
-      name: "Instagram DM Assistant",
-      model: "gpt-4o-mini",
-      instructions:
-        "You are a helpful Instagram DM assistant. Answer using the knowledge base provided. Be friendly, respond in 2–3 complete sentences, and never cut off mid-thought. If the answer isn't in your knowledge base, say so politely.",
-      tools: [{ type: "file_search" }],
-    };
+  if (vectorStoreId) {
+    console.log(`[setup] Refreshing vector store ${vectorStoreId}...`);
+    await clearVectorStore(vectorStoreId);
 
     if (fileIds.length > 0) {
-      const vectorStore = await openai.beta.vectorStores.create({
-        name: "Instagram DM Knowledge Base",
-        file_ids: fileIds,
-      });
-      createParams.tool_resources = {
-        file_search: { vector_store_ids: [vectorStore.id] },
-      };
-      console.log(`[setup] Vector store created: ${vectorStore.id}`);
+      await attachFilesToStore(vectorStoreId, fileIds);
     }
 
-    const assistant = await openai.beta.assistants.create(createParams);
-
-    console.log("\n✅ Assistant created successfully!");
-    console.log(`   Assistant ID: ${assistant.id}`);
-    console.log("\nAdd this to your .env.local:");
-    console.log(`   OPENAI_ASSISTANT_ID=${assistant.id}`);
+    console.log("\n✅ Vector store refreshed.");
+    console.log(`   OPENAI_VECTOR_STORE_ID=${vectorStoreId}`);
+    console.log(
+      `\nProcessing may take a minute: https://platform.openai.com/storage/vector-stores/${vectorStoreId}`
+    );
+    return;
   }
+
+  console.log("[setup] Creating new vector store...");
+
+  const vectorStore = await openai.vectorStores.create({
+    name: "Instagram DM Knowledge Base",
+    ...(fileIds.length > 0 && { file_ids: fileIds }),
+  });
+
+  console.log("\n✅ Vector store created.");
+  console.log(`   Vector Store ID: ${vectorStore.id}`);
+  console.log("\nAdd to .env.local:");
+  console.log(`   OPENAI_VECTOR_STORE_ID=${vectorStore.id}`);
 }
 
 main().catch((err) => {

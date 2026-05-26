@@ -2,69 +2,71 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// In-memory thread store: maps Instagram sender ID → OpenAI thread ID.
-// Threads persist for the lifetime of the server process, giving the assistant
-// conversation memory. They reset on redeploy — upgrade to a DB if you need
-// cross-deploy persistence.
-const threadMap = new Map<string, string>();
-
-async function getOrCreateThread(senderId: string): Promise<string> {
-  const existing = threadMap.get(senderId);
-  if (existing) return existing;
-
-  const thread = await openai.beta.threads.create();
-  threadMap.set(senderId, thread.id);
-  return thread.id;
-}
+// Maps Instagram sender ID → last Responses API response ID.
+// Passing previous_response_id gives the model conversation memory without
+// managing threads manually. Resets on server restart — upgrade to a DB
+// for cross-deploy persistence.
+const lastResponseMap = new Map<string, string>();
 
 export async function generateAIResponse(
   userMessage: string,
   senderId: string
 ): Promise<string | null> {
-  const assistantId = process.env.OPENAI_ASSISTANT_ID;
+  const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID;
 
   if (!process.env.OPENAI_API_KEY) {
     console.error("[OpenAI] Missing OPENAI_API_KEY");
     return null;
   }
 
-  if (!assistantId) {
+  if (!vectorStoreId) {
     console.error(
-      "[OpenAI] Missing OPENAI_ASSISTANT_ID — run scripts/setup-assistant.ts first"
+      "[OpenAI] Missing OPENAI_VECTOR_STORE_ID — run scripts/setup-assistant.ts first"
     );
     return null;
   }
 
   try {
-    const threadId = await getOrCreateThread(senderId);
+    const previousResponseId = lastResponseMap.get(senderId);
 
-    await openai.beta.threads.messages.create(threadId, {
-      role: "user",
-      content: userMessage,
+    const response = await openai.responses.create({
+      model: "gpt-4o-mini",
+      instructions:
+        `Sos Feliza, la asistente virtual oficial del Club Cultural Marica – Feliz Arcoíris, un bar y club cultural queer ubicado en Buenos Aires, Argentina (Av. Córdoba 3271, CABA).
+Sos cálida, divertida, inclusiva y profundamente conectada con la comunidad LGBTIQ+. Hablás con un tono casual, amigable y afirmativo — siempre bienvenida, nunca con juicios. 
+Usás el voseo rioplatense de forma natural, por ejemplo decís "Si tenés mas preguntas" en lugar de "Si tienes más preguntas".
+Para enfatizar el tono casual no abras signos de exclamación ni interrogación. Respondé lo mas corto posible.
+Tu rol es ayudar a las personas con:
+
+Info de eventos: programación semanal (miércoles a domingos desde las 20h) y eventos especiales como Batalla Lip Sync, Fiesta Femme, Patio Marikx, noches de Karaoke, proyecciones de CineWoke y shows de drag.
+Reservas y celebraciones: paquetes para cumpleaños y consultas sobre eventos privados.
+Oferta comunitaria: cursos y talleres LGBTIQ+ que se realizan en el espacio.
+Info general: ubicación, horarios, cómo llegar y links a redes sociales.
+Espíritu comunitario: reforzar que Feliza es un espacio seguro, inclusivo y festivo para la comunidad LGBTIQ+ y sus aliades.
+
+Cuando no sepas algún detalle específico (como fechas exactas o precios), invitá a la persona a revisar el Linktree (linktr.ee/felizarcoiris) o a escribir directamente por Instagram (@felizarcoiris).
+Nunca hablés negativamente de ningún integrante de la comunidad LGBTIQ+, y siempre priorizá que las personas se sientan vistas, seguras y bienvenidas.
+Si alguien te escribe en inglés u otro idioma, respondé en ese mismo idioma.`,
+      input: userMessage,
+      tools: [
+        {
+          type: "file_search",
+          vector_store_ids: [vectorStoreId],
+        },
+      ],
+      ...(previousResponseId && { previous_response_id: previousResponseId }),
+      store: true,
     });
 
-    const run = await openai.beta.threads.runs.createAndPoll(threadId, {
-      assistant_id: assistantId,
-    });
+    lastResponseMap.set(senderId, response.id);
 
-    if (run.status !== "completed") {
-      console.error("[OpenAI] Run did not complete:", run.status, run.last_error);
+    // output_text is a convenience helper that concatenates all text output items
+    const text = response.output_text?.trim() ?? null;
+
+    if (!text) {
+      console.error("[OpenAI] Empty output from Responses API");
       return null;
     }
-
-    const messages = await openai.beta.threads.messages.list(threadId, {
-      order: "desc",
-      limit: 1,
-    });
-
-    const latest = messages.data[0];
-    if (!latest || latest.role !== "assistant") return null;
-
-    const textBlock = latest.content.find((c) => c.type === "text");
-    if (!textBlock || textBlock.type !== "text") return null;
-
-    // Strip citation annotations like 【4:0†source】
-    const text = textBlock.text.value.replace(/【[^】]*】/g, "").trim();
 
     console.log("[OpenAI] Generated response:", text);
     return text;
