@@ -1,11 +1,15 @@
+import { getInstagramAccessToken } from "@/app/lib/token-store";
+
 export async function sendInstagramMessage(
   recipientId: string,
   message: string
 ): Promise<boolean> {
-  const accessToken = process.env.INSTAGRAM_TOKEN;
+  const accessToken = await getInstagramAccessToken();
 
   if (!accessToken) {
-    console.error("[SendMessage] Missing INSTAGRAM_TOKEN");
+    console.error(
+      "[SendMessage] Missing INSTAGRAM_TOKEN (env or KV store)"
+    );
     return false;
   }
 

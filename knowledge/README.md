@@ -11,6 +11,7 @@ Examples:
 
 Scripts (from repo root):
 
+  npm run knowledge:sync-agenda        # fetch weekly agenda → agenda-semana.txt
   npm run knowledge:sync-instagram   # fetch IG posts → instagram-agenda.txt
   npm run knowledge:setup            # upload /knowledge to OpenAI vector store
-  npm run knowledge:refresh          # sync Instagram + refresh vector store
+  npm run knowledge:refresh          # sync agenda + Instagram + refresh vector store

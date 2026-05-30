@@ -126,18 +126,18 @@ async function fetchPageAccessToken(
     );
   }
 
-  const match =
-    (igAccountId &&
-      json.data.find(
+  const match = igAccountId
+    ? json.data.find(
         (p) => p.instagram_business_account?.id === igAccountId
-      )) ??
-    json.data[0];
+      )
+    : undefined;
+  const page = match ?? json.data[0];
 
-  if (!match?.access_token) {
+  if (!page?.access_token) {
     throw new Error("Could not resolve a page access token from /me/accounts");
   }
 
-  return { pageId: match.id, token: match.access_token };
+  return { pageId: page.id, token: page.access_token };
 }
 
 function formatExpiry(expiresIn?: number): string {

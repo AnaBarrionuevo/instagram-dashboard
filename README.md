@@ -7,6 +7,7 @@ A Next.js app that receives Instagram DMs via Meta webhooks and replies automati
 - **Instagram DM webhook** — Meta webhook verification (`GET`) and event handling (`POST`) at `/api/webhook`
 - **AI auto-replies** — Incoming text messages get a response via the [OpenAI Responses API](https://developers.openai.com/api/docs/guides/migrate-to-responses) with `gpt-4o-mini`
 - **Knowledge base (file search)** — Documents in `/knowledge` are uploaded to an OpenAI vector store and searched at reply time
+- **Weekly agenda sync** — Fetches the live schedule from `felizarcoiris.com/api/agenda/semana` into `knowledge/agenda-semana.txt`
 - **Instagram feed sync** — Fetches recent post captions into `knowledge/instagram-agenda.txt` for up-to-date schedules and announcements (Option B: batch sync, not per-message API calls)
 - **Conversation memory** — Chains replies per sender with `previous_response_id` (in-memory; resets on server restart)
 - **Configurable persona** — System instructions live in `app/lib/openai.ts` (edit and restart the dev server; no vector store refresh needed)
@@ -23,7 +24,9 @@ knowledge/                  # Source files for the vector store
 scripts/
   setup-assistant.ts        # Create or refresh OpenAI vector store
   sync-instagram.ts         # Pull IG posts → instagram-agenda.txt
+  sync-agenda.ts            # Pull weekly agenda → agenda-semana.txt
   refresh-meta-token.ts     # Refresh Meta tokens before they expire
+vercel.json                 # Weekly cron → /api/cron/knowledge-refresh
 ```
 
 ## Prerequisites
@@ -46,12 +49,15 @@ INSTAGRAM_TOKEN=...
 INSTAGRAM_BUSINESS_ACCOUNT_ID=...
 INSTAGRAM_USER_ID=...
 
-# Instagram (optional — used by knowledge:sync-instagram)
+# Instagram (optional — used by knowledge:sync-instagram / cron refresh)
 PAGE_ACCESS_TOKEN=...
 INSTAGRAM_FEED_ACCOUNT_ID=...   # optional; defaults to INSTAGRAM_BUSINESS_ACCOUNT_ID
 INSTAGRAM_FEED_DAYS=30          # optional; how many days of posts to include
 
-# Token refresh (optional — npm run meta:refresh-token)
+# Weekly agenda (optional — defaults to felizarcoiris.com)
+AGENDA_SEMANA_API_URL=https://felizarcoiris.com/api/agenda/semana
+
+# Token refresh (optional — cron can persist refreshed tokens to KV)
 META_APP_ID=...
 META_APP_SECRET=...
 META_LONG_LIVED_USER_TOKEN=...  # Facebook user token; used to renew PAGE_ACCESS_TOKEN
@@ -60,6 +66,9 @@ FACEBOOK_PAGE_ID=...            # optional; auto-detected if omitted
 # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_VECTOR_STORE_ID=vs_...   # from npm run knowledge:setup
+
+# Vercel Cron (production only — secures /api/cron/knowledge-refresh)
+CRON_SECRET=...                 # random string; Vercel sends it as Authorization: Bearer
 ```
 
 ## Setup
@@ -93,9 +102,10 @@ npm run knowledge:setup
 
 ### 3. Keep agenda / feed content fresh (weekly)
 
-Sync Instagram captions into the knowledge folder, then refresh the vector store:
+Sync the weekly agenda and Instagram captions into the knowledge folder, then refresh the vector store:
 
 ```bash
+npm run knowledge:sync-agenda      # → knowledge/agenda-semana.txt
 npm run knowledge:sync-instagram   # → knowledge/instagram-agenda.txt
 npm run knowledge:setup            # re-upload all /knowledge files
 ```
@@ -104,6 +114,28 @@ Or both in one step:
 
 ```bash
 npm run knowledge:refresh
+```
+
+### Vercel Cron (production)
+
+On Vercel, a weekly cron job syncs Instagram posts and refreshes the vector store automatically:
+
+- **Route:** `GET /api/cron/knowledge-refresh`
+- **Schedule:** Mondays at 09:00 UTC (`vercel.json`)
+- **Auth:** set `CRON_SECRET` in Vercel env vars — Vercel sends `Authorization: Bearer <CRON_SECRET>`
+
+Required env vars on Vercel (same as local sync): `OPENAI_API_KEY`, `OPENAI_VECTOR_STORE_ID`, `INSTAGRAM_TOKEN` or `PAGE_ACCESS_TOKEN`, and `INSTAGRAM_BUSINESS_ACCOUNT_ID`.
+
+Commit static files in `/knowledge` to git so they are included in the deployment. The cron uploads those plus freshly fetched `agenda-semana.txt` and `instagram-agenda.txt` (in memory — no disk write on Vercel).
+
+**Token refresh on Vercel (no dashboard edits):** the cron route attempts to refresh Meta tokens and stores the refreshed values in a persistent KV store. You still need to set `META_APP_ID`, `META_APP_SECRET`, and an initial `META_LONG_LIVED_USER_TOKEN` (and/or `INSTAGRAM_TOKEN`) once.
+
+This uses Vercel KV / Upstash Redis under the hood. Configure it via the Vercel integration; it will provide `KV_*` / `UPSTASH_*` env vars automatically.
+
+Test the route manually:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://<your-vercel-host>/api/cron/knowledge-refresh
 ```
 
 Re-run `knowledge:setup` or `knowledge:refresh` whenever you change files in `/knowledge` or want newer Instagram posts in the bot’s context. **You do not need to re-run setup after editing the prompt** in `app/lib/openai.ts` — only restart the dev server.
@@ -136,22 +168,23 @@ This script:
 | `npm run start` | Run production server |
 | `npm run lint` | ESLint |
 | `npm run knowledge:setup` | Upload `/knowledge` to OpenAI vector store (create or refresh) |
+| `npm run knowledge:sync-agenda` | Fetch weekly agenda → `knowledge/agenda-semana.txt` |
 | `npm run knowledge:sync-instagram` | Fetch recent IG posts → `knowledge/instagram-agenda.txt` |
-| `npm run knowledge:refresh` | Refresh Meta tokens (if possible) + sync Instagram + refresh vector store |
+| `npm run knowledge:refresh` | Refresh Meta tokens (if possible) + sync agenda & Instagram + refresh vector store |
 | `npm run meta:refresh-token` | Extend valid Instagram / Facebook tokens; updates `.env.local` |
 
 ## Customizing the assistant
 
 Edit the `instructions` string in `app/lib/openai.ts`. That text is sent on every reply and defines tone, role, and fallback behavior (e.g. Linktree / @handle).
 
-Stable facts (menus, policies, long docs) belong in `/knowledge`. Time-sensitive content (weekly agenda) is a good fit for `knowledge:sync-instagram`.
+Stable facts (menus, policies, long docs) belong in `/knowledge`. Time-sensitive content (weekly agenda, events) is synced via `knowledge:sync-agenda` and recent Instagram posts via `knowledge:sync-instagram`.
 
 ## How a DM is handled
 
 1. Meta sends a `POST` to `/api/webhook`.
 2. `webhook.service.ts` ignores echoes, reactions, and read receipts; processes incoming text DMs.
 3. `generateAIResponse()` calls OpenAI with `file_search` on your vector store and optional `previous_response_id` for the same sender.
-4. `sendInstagramMessage()` replies via the Instagram Graph API.
+4. `sendInstagramMessage()` replies via the Instagram Graph API using `INSTAGRAM_TOKEN` from KV (if configured) or env.
 
 ## Tech stack
 
