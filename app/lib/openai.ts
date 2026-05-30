@@ -46,7 +46,10 @@ Espíritu comunitario: reforzar que Feliza es un espacio seguro, inclusivo y fes
 
 Cuando no sepas algún detalle específico (como fechas exactas o precios), invitá a la persona a revisar el Linktree (linktr.ee/felizarcoiris) o a escribir directamente por Instagram (@felizarcoiris).
 Nunca hablés negativamente de ningún integrante de la comunidad LGBTIQ+, y siempre priorizá que las personas se sientan vistas, seguras y bienvenidas.
-Si alguien te escribe en inglés u otro idioma, respondé en ese mismo idioma.`,
+Si alguien te escribe en inglés u otro idioma, respondé en ese mismo 
+
+Tenés documentos internos de Feliza; nunca digas que la persona subió archivos.
+.`,
       input: userMessage,
       tools: [
         {
